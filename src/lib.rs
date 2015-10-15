@@ -415,7 +415,7 @@ impl<T> InternalAtomicCell<T> where T: Clone {
             // an atomic spinlock.
             let owning = self.lock.compare_and_swap(/*must be available*/true,
                                                     /*mark as unavailable*/false,
-                                                    Ordering::SeqCst);
+                                                    Ordering::Acquire);
             if owning {
                 // We are now the owner of the lock.
 
@@ -435,7 +435,7 @@ impl<T> InternalAtomicCell<T> where T: Clone {
             // an atomic spinlock.
             let owning = self.lock.compare_and_swap(/*must be available*/true,
                                                     /*mark as unavailable*/false,
-                                                    Ordering::SeqCst);
+                                                    Ordering::Acquire);
             if owning {
                 // We are now the owner of the lock.
 
@@ -498,7 +498,7 @@ impl<'a> GuardLock<'a> {
 }
 impl<'a> Drop for GuardLock<'a> {
     fn drop(&mut self) {
-        self.lock.swap(true, Ordering::Relaxed);
+        self.lock.swap(true, Ordering::Release);
     }
 }
 
