@@ -1,8 +1,7 @@
 [package]
-name = "clone_provider"
+name = "atomic_cell"
 version = "0.1.0"
-authors = ["David Rajchenbach-Teller <D.O.Teller@gmail.com>"]
+authors = ["David Rajchenbach-Teller <D.O.Teller@gmail.com>", "Simon Sapin <simon.sapin@exyr.org>"]
 
-[dependencies]
-lazy_static = "0.1.15"
+[dependencies-dev]
 telemetry = "0.1.1"

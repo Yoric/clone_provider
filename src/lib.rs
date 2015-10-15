@@ -4,80 +4,227 @@
 
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
-pub struct Global;
-pub struct Scoped;
-
-pub struct StaticAtomicCell<T> where T: Clone {
-    internal: InternalAtomicCell<T>
+/// A cell holding values protected by an atomic lock.
+///
+/// This cell is designed to be instantiated as a global variable, to
+/// hold a single value and to distribute it to threads as needed.  It
+/// was initially designed to distribute clones of `Sender` to
+/// hundreds of clients across dozens of modules without having to
+/// pass these senders as argument through hundreds of intermediate
+/// functions.
+///
+/// # Example
+///
+/// ```
+/// #![feature(const_fn)]
+/// use std::thread;
+/// use std::sync::mpsc::{channel, Sender};
+/// use std::ops::Add;
+///
+/// use atomic_cell::StaticCell;
+///
+/// // Sender cannot be defined as a `static` for two reasons:
+/// // - it does not implement `Sync`;
+/// // - it has a destructor.
+/// // So let's implement it as a `StaticCell`.
+///
+///
+/// static CELL: StaticCell<Sender<u32>> = StaticCell::new();
+///
+/// fn main() {
+///   let (sender, receiver) = channel();
+///   let _guard = CELL.init(sender);
+///   // From this point and until `_guard` is dropped, `CELL` owns `sender`.
+///
+///   for i in 0..10 {
+///     thread::spawn(move || {
+///       // Any thread can now access clones of `sender`.
+///       // `sender.clone()` explicitly.
+///       let sender = CELL.get().unwrap();
+///       sender.send(i).unwrap();
+///     });
+///   }
+///
+///   // Make sure that all data was received properly.
+///   assert_eq!(receiver.iter().take(10).fold(0, Add::add), 45);
+/// }
+/// ```
+///
+///
+/// # Performance
+///
+/// This cell is optimized for low contention. If there is no
+/// contention, each call to `get` is resolved as a single atomic
+/// read. In presence of high contention on a single cell, though,
+/// performance may degrade considerably.
+///
+///
+///
+/// # Resource-safety
+///
+/// Unlike other kinds of static holders, values in `StaticCell` are
+/// scoped and will be dropped, once the guard is dropped.
+///
+///
+///
+pub struct StaticCell<T> where T: Clone {
+    internal: InternalAtomicCell<T>,
+    initialized: AtomicBool
 }
 
-impl<T> StaticAtomicCell<T> where T: Clone {
+impl<T> StaticCell<T> where T: Clone {
+    ///
+    /// Create an empty cell.
+    ///
+    /// Call `init` to fill the cell.
+    ///
     pub const fn new() -> Self {
-        StaticAtomicCell {
+        StaticCell {
+            initialized: AtomicBool::new(false),
             internal: InternalAtomicCell::const_new()
         }
     }
 
-    pub fn set(&self, value: T) {
-        self.internal.set(value)
+    /// Initialize the cell.
+    ///
+    /// This methods returns a guard, which will drop `value` once it is dropped itself.
+    /// Once this is done, `self` will return to being an empty cell. It will, however,
+    /// remain initialized and cannot ever be initialized again.
+    ///
+    /// # Panics
+    ///
+    /// This method panicks if the cell is already initialized.
+    pub fn init<'a>(&'a self, value: T) -> CleanGuard<'a> {
+        let initialized = self.initialized.compare_and_swap(false, true, Ordering::Relaxed);
+        if initialized {
+            panic!("StaticCell is already initialized.");
+        }
+        self.internal.set(value);
+        return CleanGuard {
+            item: self
+        }
     }
 
+    /// Get the value held by the cell.
+    ///
+    /// Returns `None` if the cell is empty, either because it is not
+    /// initialized or because the guard has been dropped.
+    ///
+    /// # Panics
+    ///
+    /// This method panicks if the call to `value.clone()` causes a
+    /// panic.  However, the cell remains usable.
     pub fn get(&self) -> Option<Box<T>> {
         self.internal.get()
     }
+}
 
-    pub fn unset(&self) {
-        self.internal.unset()
-    }
+trait CleanMeUp {
+    fn clean(&self);
+}
 
-    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
-        self.internal.swap(value)
+/// A guard used to drop the value held by a `StaticCell` at a
+/// deterministic point in code.
+pub struct CleanGuard<'a> {
+    item: &'a CleanMeUp
+}
+
+impl<T> CleanMeUp for StaticCell<T> where T: Clone {
+    fn clean(&self) {
+        print!( "CleanMeUp.clean");
+        self.internal.unset();
     }
 }
 
+impl<'a> Drop for CleanGuard<'a> {
+    fn drop(&mut self) {
+        self.item.clean();
+    }
+}
+
+/// A cell holding values protected by an atomic lock.
+///
+/// This cell is designed to be instantiated as a local variable, to
+/// hold a single value and to distribute it to threads as needed.
+///
+/// This cell cannot be allocated as a global variable. If you need a
+/// global variable, use `StaticAtomicCell`.
+///
+///
+/// # Performance
+///
+/// This cell is optimized for low contention. If there is no
+/// contention, each call to `get` is resolved as a single atomic
+/// read. In presence of high contention on a single cell, though,
+/// performance may degrade considerably.
+///
 pub struct AtomicCell<T> where T: Clone {
     internal: InternalAtomicCell<T>
 }
 
 impl<T> AtomicCell<T> where T: Clone {
+    ///
+    /// Create a new empty cell.
+    ///
+    /// Use `set` or `swap` to add contents.
+    ///
     pub fn new() -> Self {
         AtomicCell {
             internal: InternalAtomicCell::new()
         }
     }
 
+    ///
+    /// Set the contents of the cell.
+    ///
+    /// `value` will be dropped either when the cell is dropped, or
+    /// when `set` is called once again. Property of `value` is
+    /// transferred to the client if `swap` is called.
+    ///
+    /// If the cell already held some contents, drop these contents.
+    ///
     pub fn set(&self, value: T) {
         self.internal.set(value)
     }
 
+    /// Get the value held by the cell.
+    ///
+    /// Returns `None` if the cell is empty.
+    ///
+    /// # Panics
+    ///
+    /// This method panicks if the call to `value.clone()` causes a
+    /// panic.  However, the cell remains usable.
     pub fn get(&self) -> Option<Box<T>> {
         self.internal.get()
     }
 
+    ///
+    /// Empty the cell manually.
+    ///
+    /// If the cell was empty, this is a noop. Otherwise, the previous
+    /// value held is dropped.
+    ///
     pub fn unset(&self) {
         self.internal.unset()
     }
 
+    ///
+    /// Swap the value held by the cell with a new value.
+    ///
     pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
         self.internal.swap(value)
     }
 }
 
 impl<T> Drop for AtomicCell<T> where T: Clone {
+    ///
+    /// Drop any content present in the cell.
+    ///
     fn drop(&mut self) {
         self.unset();
     }
 }
-
-/*
-pub type AtomicCell<T> = InternalAtomicCell<Scoped, T>;
-
-impl<T> AtomicCell<T> where T: Clone {
-    pub fn new() -> Self {
-        AtomicCell::internal_new()
-    }
-}
-*/
 
 /// A cell holding values protected by an atomic lock.
 ///
@@ -87,7 +234,8 @@ impl<T> AtomicCell<T> where T: Clone {
 ///
 /// This cell is optimized for low contention.
 ///
-/// FIXME: Resolve the matter of dropping.
+/// This version does NOT guarantee that the values it holds are
+/// dropped.
 ///
 impl<T> InternalAtomicCell<T> where T: Clone {
     ///
@@ -268,14 +416,16 @@ mod test {
     use std::ops::Add;
     use std::sync::mpsc::{channel, Sender};
     use std::thread;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
 
     // Test that we can allocate a cell and use it to distribute value
     // to several threads.
-    static CELL: StaticAtomicCell<Sender<u32>> = StaticAtomicCell::new();
+    static CELL: StaticCell<Sender<u32>> = StaticCell::new();
     #[test]
     fn test_channels() {
         let (tx, rx) = channel();
-        CELL.set(tx);
+        let _guard = CELL.init(tx);
         for i in 0..10 {
             thread::spawn(move || {
                 let tx = CELL.get().unwrap();
@@ -286,7 +436,7 @@ mod test {
     }
 
     // Test that `get()` on an empty cell returns `None`.
-    static CELL2: StaticAtomicCell<u32> = StaticAtomicCell::new();
+    static CELL2: StaticCell<u32> = StaticCell::new();
     #[test]
     fn test_empty() {
         for _ in 0..10 {
@@ -298,35 +448,47 @@ mod test {
     }
 
     // Test that a panic does not make the cell unusable.
-    struct Panicky {
-        pub should_panic: bool
-    }
+    static mut should_panic: AtomicBool = AtomicBool::new(true);
+    struct Panicky;
     impl Clone for Panicky {
         fn clone(&self) -> Self {
-            if self.should_panic {
-                panic!("I have panicked, as expected");
+            unsafe {
+                if should_panic.load(Ordering::Relaxed) {
+                    panic!("I have panicked, as expected");
+                }
             }
-            Panicky {
-                should_panic: self.should_panic
-            }
+            Panicky
         }
     }
 
-    static CELL_PANIC: StaticAtomicCell<Panicky> = StaticAtomicCell::new();
+    static CELL_PANIC: StaticCell<Panicky> = StaticCell::new();
     #[test]
     fn test_panic() {
+        let original = Panicky;
+
         // First, cause a panic.
-        CELL_PANIC.set(Panicky { should_panic: true });
+        let _guard = CELL_PANIC.init(original);
         let panic = thread::catch_panic(|| {
             CELL_PANIC.get() // Should panic
         });
         assert!(panic.is_err());
 
-        // Now proceed, as if nothing had happened.
-        CELL_PANIC.set(Panicky { should_panic: false });
+        // Now stop the panic.
+        unsafe {
+            should_panic.swap(false, Ordering::Relaxed);
+        }
 
         // This shouldn't panic.
         CELL_PANIC.get().unwrap();
     }
 
+    static CELL_INIT: StaticCell<u32> = StaticCell::new();
+    #[test]
+    fn test_init() {
+        {
+            let mut _guard = CELL_INIT.init(0);
+            CELL_INIT.get().unwrap();
+        }
+        assert_eq!(CELL_INIT.get(), None);
+    }
 }
