@@ -54,9 +54,10 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 /// # Performance
 ///
 /// This cell is optimized for low contention. If there is no
-/// contention, each call to `get` is resolved as a single atomic
-/// read. In presence of high contention on a single cell, though,
-/// performance may degrade considerably.
+/// contention, each call to `get` is resolved as a single
+/// (sequentially consistant) atomic read. In presence of high
+/// contention on a single cell, though, performance may degrade
+/// considerably.
 ///
 ///
 ///
@@ -87,9 +88,10 @@ impl<T> StaticCell<T> where T: Clone {
 
     /// Initialize the cell.
     ///
-    /// This methods returns a guard, which will drop `value` once it is dropped itself.
-    /// Once this is done, `self` will return to being an empty cell. It will, however,
-    /// remain initialized and cannot ever be initialized again.
+    /// This methods returns a guard, which will drop `value` once it
+    /// is dropped itself.  Once this is done, `self` will return to
+    /// being an empty cell. It will, however, remain initialized and
+    /// cannot ever be initialized again.
     ///
     /// # Panics
     ///
@@ -100,9 +102,7 @@ impl<T> StaticCell<T> where T: Clone {
             panic!("StaticCell is already initialized.");
         }
         self.internal.set(value);
-        return CleanGuard {
-            item: self
-        }
+        return CleanGuard::new(self)
     }
 
     /// Get a clone of the value held by the cell.
@@ -113,6 +113,17 @@ impl<T> StaticCell<T> where T: Clone {
     /// Receiving `None` is almost always a programming error, so
     /// client code is encouraged to `unwrap()` immediately.
     ///
+    ///
+    /// # Performance
+    ///
+    /// This methods uses an atomic spinlock. With low contention, it
+    /// is generally quite fast (assuming that `clone()` is itself
+    /// fast). In case of high contention, performance may degrade
+    /// considerably. In case of doubt, ou may wish to ensure that
+    /// your code calls `clone()` before entering a
+    /// perfirmance-critical or high-contention section.
+    ///
+    ///
     /// # Panics
     ///
     /// This method panicks if the call to `value.clone()` causes a
@@ -122,29 +133,48 @@ impl<T> StaticCell<T> where T: Clone {
     }
 }
 
-trait CleanMeUp {
-    fn clean(&self);
-}
-
-/// A guard used to drop the value held by a `StaticCell` at a
-/// deterministic point in code.
-///
-/// Once the CleanGuard returned by `init()` is dropped, the value
-/// held by the cell is also dropped.
-pub struct CleanGuard<'a> {
-    item: &'a CleanMeUp
-}
-
 impl<T> CleanMeUp for StaticCell<T> where T: Clone {
+    /// Drop the value currently held by the cell, if any.
     ///
-    /// Perform any cleanup.
-    ///
+    /// This method is called when the `CleanGuard` is dropped.
     fn clean(&self) {
         self.internal.unset();
     }
 }
 
+/// An object that needs to be cleaned up.
+pub trait CleanMeUp {
+    /// Perform cleanup.
+    fn clean(&self);
+}
+
+
+/// A guard used to drop the value held by a `CleanMeUp` at a
+/// deterministic point in code. This is designed as an alternative to
+/// `Drop` for global variables.
+///
+/// Once the `CleanGuard`, the value held by the cell is also dropped.
+pub struct CleanGuard<'a> {
+    item: &'a CleanMeUp
+}
+
+impl<'a> CleanGuard<'a> {
+    /// Create a new guard in charge of cleaning up an object.
+    ///
+    /// Once the CleanGuard is dropped, the object's `clean` method is
+    /// called.
+    pub fn new(item: &'a CleanMeUp) -> Self {
+        CleanGuard {
+            item: item
+        }
+    }
+}
+
+
 impl<'a> Drop for CleanGuard<'a> {
+    ///
+    /// Call the guarded object's `clean` method.
+    ///
     fn drop(&mut self) {
         self.item.clean();
     }
@@ -162,9 +192,10 @@ impl<'a> Drop for CleanGuard<'a> {
 /// # Performance
 ///
 /// This cell is optimized for low contention. If there is no
-/// contention, each call to `get` is resolved as a single atomic
-/// read. In presence of high contention on a single cell, though,
-/// performance may degrade considerably.
+/// contention, each call to `get` is resolved as a single
+/// (sequentially consistent) atomic read. In presence of high
+/// contention on a single cell, though, performance may degrade
+/// considerably.
 ///
 pub struct AtomicCell<T> where T: Clone {
     internal: InternalAtomicCell<T>
@@ -401,15 +432,25 @@ fn opt_from_ptr<T>(ptr: *mut T) -> Option<Box<T>> {
 }
 
 struct InternalAtomicCell<T> where T: Clone {
+    ///
+    /// Pointer to the value held by the cell.
+    ///
+    /// This pointer may be `null`.
+    ///
     ptr: AtomicPtr<T>,
+
+    /// An atomic bool supporting a spinlock.
+    ///
+    /// If `true`, the lock can be acquired. If `false`, the lock
+    /// is not available.
     lock: AtomicBool,
 }
 
 unsafe impl<T> Sync for InternalAtomicCell<T> where T: Clone + Send {
 }
 
-// A guard used to ensure that we release a lock, even in case of
-// panic.
+/// A guard used to ensure that we release a lock, even in case of
+/// panic.
 struct GuardLock<'a> {
     lock: &'a AtomicBool
 }
