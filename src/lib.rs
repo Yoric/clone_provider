@@ -95,7 +95,7 @@ impl<T> StaticCell<T> where T: Clone {
     ///
     /// This method panicks if the cell is already initialized.
     pub fn init<'a>(&'a self, value: T) -> CleanGuard<'a> {
-        let initialized = self.initialized.compare_and_swap(false, true, Ordering::Relaxed);
+        let initialized = self.initialized.compare_and_swap(false, true, Ordering::SeqCst);
         if initialized {
             panic!("StaticCell is already initialized.");
         }
@@ -347,6 +347,8 @@ impl<T> InternalAtomicCell<T> where T: Clone {
         // We are now the owner of `value` as a pointer. From this
         // point, we are in charge of dropping it manually.
         self.with_lock(|| {
+            // Since we are protected by the outer lock, a relaxed
+            // order is sufficient here.
             let old_ptr = self.ptr.swap(new_ptr, Ordering::Relaxed);
             opt_from_ptr(old_ptr)
         })
@@ -367,7 +369,8 @@ impl<T> InternalAtomicCell<T> where T: Clone {
             // This data structure is designed for low contention, so we can use
             // an atomic spinlock.
             let owning = self.lock.compare_and_swap(/*must be available*/true,
-                                                    /*mark as unavailable*/false, Ordering::Relaxed); // FIXME: Check ordering.
+                                                    /*mark as unavailable*/false,
+                                                    Ordering::SeqCst);
             if owning {
                 // We are now the owner of the lock.
 
