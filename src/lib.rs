@@ -4,6 +4,81 @@
 
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
+pub struct Global;
+pub struct Scoped;
+
+pub struct StaticAtomicCell<T> where T: Clone {
+    internal: InternalAtomicCell<T>
+}
+
+impl<T> StaticAtomicCell<T> where T: Clone {
+    pub const fn new() -> Self {
+        StaticAtomicCell {
+            internal: InternalAtomicCell::const_new()
+        }
+    }
+
+    pub fn set(&self, value: T) {
+        self.internal.set(value)
+    }
+
+    pub fn get(&self) -> Option<Box<T>> {
+        self.internal.get()
+    }
+
+    pub fn unset(&self) {
+        self.internal.unset()
+    }
+
+    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
+        self.internal.swap(value)
+    }
+}
+
+pub struct AtomicCell<T> where T: Clone {
+    internal: InternalAtomicCell<T>
+}
+
+impl<T> AtomicCell<T> where T: Clone {
+    pub fn new() -> Self {
+        AtomicCell {
+            internal: InternalAtomicCell::new()
+        }
+    }
+
+    pub fn set(&self, value: T) {
+        self.internal.set(value)
+    }
+
+    pub fn get(&self) -> Option<Box<T>> {
+        self.internal.get()
+    }
+
+    pub fn unset(&self) {
+        self.internal.unset()
+    }
+
+    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
+        self.internal.swap(value)
+    }
+}
+
+impl<T> Drop for AtomicCell<T> where T: Clone {
+    fn drop(&mut self) {
+        self.unset();
+    }
+}
+
+/*
+pub type AtomicCell<T> = InternalAtomicCell<Scoped, T>;
+
+impl<T> AtomicCell<T> where T: Clone {
+    pub fn new() -> Self {
+        AtomicCell::internal_new()
+    }
+}
+*/
+
 /// A cell holding values protected by an atomic lock.
 ///
 /// This cell is designed to hold values that implement `Clone` and to
@@ -14,14 +89,20 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 ///
 /// FIXME: Resolve the matter of dropping.
 ///
-impl<T> AtomicCell<T> where T: Clone {
+impl<T> InternalAtomicCell<T> where T: Clone {
     ///
     /// Create an empty cell.
     ///
-    pub const fn new() -> Self {
-        AtomicCell {
+    pub const fn const_new() -> Self {
+        InternalAtomicCell {
             ptr: AtomicPtr::new(std::ptr::null_mut()),
-            lock: AtomicBool::new(true)
+            lock: AtomicBool::new(true),
+        }
+    }
+    pub fn new() -> Self {
+        InternalAtomicCell {
+            ptr: AtomicPtr::new(std::ptr::null_mut()),
+            lock: AtomicBool::new(true),
         }
     }
 
@@ -155,12 +236,12 @@ impl<T> AtomicCell<T> where T: Clone {
     }
 }
 
-pub struct AtomicCell<T> where T: Clone {
+struct InternalAtomicCell<T> where T: Clone {
     ptr: AtomicPtr<T>,
-    lock: AtomicBool
+    lock: AtomicBool,
 }
 
-unsafe impl<T> Sync for AtomicCell<T> where T: Clone + Send {
+unsafe impl<T> Sync for InternalAtomicCell<T> where T: Clone + Send {
 }
 
 struct GuardLock<'a> {
@@ -181,7 +262,7 @@ impl<'a> Drop for GuardLock<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::AtomicCell;
+    use super::*;
 
 
     use std::ops::Add;
@@ -190,7 +271,7 @@ mod test {
 
     // Test that we can allocate a cell and use it to distribute value
     // to several threads.
-    static CELL: AtomicCell<Sender<u32>> = AtomicCell::new();
+    static CELL: StaticAtomicCell<Sender<u32>> = StaticAtomicCell::new();
     #[test]
     fn test_channels() {
         let (tx, rx) = channel();
@@ -205,7 +286,7 @@ mod test {
     }
 
     // Test that `get()` on an empty cell returns `None`.
-    static CELL2: AtomicCell<u32> = AtomicCell::new();
+    static CELL2: StaticAtomicCell<u32> = StaticAtomicCell::new();
     #[test]
     fn test_empty() {
         for _ in 0..10 {
@@ -231,7 +312,7 @@ mod test {
         }
     }
 
-    static CELL_PANIC: AtomicCell<Panicky> = AtomicCell::new();
+    static CELL_PANIC: StaticAtomicCell<Panicky> = StaticAtomicCell::new();
     #[test]
     fn test_panic() {
         // First, cause a panic.
