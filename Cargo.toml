@@ -3,5 +3,6 @@ name = "atomic_cell"
 version = "0.1.0"
 authors = ["David Rajchenbach-Teller <D.O.Teller@gmail.com>", "Simon Sapin <simon.sapin@exyr.org>"]
 
-[dependencies-dev]
+[dev-dependencies]
 telemetry = "0.1.1"
+rustc-serialize = "0.3"

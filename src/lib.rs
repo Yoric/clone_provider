@@ -110,6 +110,9 @@ impl<T> StaticCell<T> where T: Clone {
     /// Returns `None` if the cell is empty, either because it is not
     /// initialized or because the guard has been dropped.
     ///
+    /// Receiving `None` is almost always a programming error, so
+    /// client code is encouraged to `unwrap()` immediately.
+    ///
     /// # Panics
     ///
     /// This method panicks if the call to `value.clone()` causes a
