@@ -69,8 +69,6 @@ functions.</p>
 <span class='comment'>// - it does not implement `Sync`;</span>
 <span class='comment'>// - it has a destructor.</span>
 <span class='comment'>// So let&#39;s implement it as a `StaticCell`.</span>
-
-
 <span class='kw'>static</span> <span class='ident'>CELL</span>: <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>Sender</span><span class='op'>&lt;</span><span class='ident'>u32</span><span class='op'>&gt;&gt;</span> <span class='op'>=</span> <span class='ident'>StaticCell</span>::<span class='ident'>new</span>();
 
 <span class='kw'>fn</span> <span class='ident'>main</span>() {
@@ -81,7 +79,6 @@ functions.</p>
   <span class='kw'>for</span> <span class='ident'>i</span> <span class='kw'>in</span> <span class='number'>0</span>..<span class='number'>10</span> {
     <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
       <span class='comment'>// Any thread can now access clones of `sender`.</span>
-      <span class='comment'>// `sender.clone()` explicitly.</span>
       <span class='kw'>let</span> <span class='ident'>sender</span> <span class='op'>=</span> <span class='ident'>CELL</span>.<span class='ident'>get</span>().<span class='ident'>unwrap</span>();
       <span class='ident'>sender</span>.<span class='ident'>send</span>(<span class='ident'>i</span>).<span class='ident'>unwrap</span>();
     });
@@ -89,6 +86,9 @@ functions.</p>
 
   <span class='comment'>// Make sure that all data was received properly.</span>
   <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>receiver</span>.<span class='ident'>iter</span>().<span class='ident'>take</span>(<span class='number'>10</span>).<span class='ident'>fold</span>(<span class='number'>0</span>, <span class='ident'>Add</span>::<span class='ident'>add</span>), <span class='number'>45</span>);
+
+  <span class='comment'>// When we leave `main()`, `_guard` will go out of scope and</span>
+  <span class='comment'>// will be dropped. This will cause `sender` to be dropped.</span>
 }</pre>
 
 <h1 id='performance' class='section-header'><a href='#performance'>Performance</a></h1>
@@ -114,7 +114,7 @@ remain initialized and cannot ever be initialized again.</p>
 <h1 id='panics' class='section-header'><a href='#panics'>Panics</a></h1>
 <p>This method panicks if the cell is already initialized.</p>
 </div><h4 id='method.get' class='method'><code>fn <a href='#method.get' class='fnname'>get</a>(&amp;self) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;</code></h4>
-<div class='docblock'><p>Get the value held by the cell.</p>
+<div class='docblock'><p>Get a clone of the value held by the cell.</p>
 
 <p>Returns <code>None</code> if the cell is empty, either because it is not
 initialized or because the guard has been dropped.</p>

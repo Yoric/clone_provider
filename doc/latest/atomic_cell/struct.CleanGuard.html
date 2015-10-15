@@ -45,11 +45,14 @@
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-23' class='srclink' href='../src/atomic_cell/lib.rs.html#128-130' title='goto source code'>[src]</a></span></h1>
+        </span><a id='src-23' class='srclink' href='../src/atomic_cell/lib.rs.html#131-133' title='goto source code'>[src]</a></span></h1>
 <pre class='rust struct'>pub struct CleanGuard&lt;'a&gt; {
     // some fields omitted
 }</pre><div class='docblock'><p>A guard used to drop the value held by a <code>StaticCell</code> at a
 deterministic point in code.</p>
+
+<p>Once the CleanGuard returned by <code>init()</code> is dropped, the value
+held by the cell is also dropped.</p>
 </div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl&lt;'a&gt; <a class='trait' href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html' title='core::ops::Drop'>Drop</a> for <a class='struct' href='../atomic_cell/struct.CleanGuard.html' title='atomic_cell::CleanGuard'>CleanGuard</a>&lt;'a&gt;</code></h3><div class='impl-items'><h4 id='method.drop' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html#method.drop' class='fnname'>drop</a>(&amp;mut self)</code></h4>
 </div></section>
     <section id='search' class="content hidden"></section>
