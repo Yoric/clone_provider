@@ -45,7 +45,7 @@
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-5' class='srclink' href='../src/atomic_cell/lib.rs.html#71-74' title='goto source code'>[src]</a></span></h1>
+        </span><a id='src-6' class='srclink' href='../src/atomic_cell/lib.rs.html#72-75' title='goto source code'>[src]</a></span></h1>
 <pre class='rust struct'>pub struct StaticCell&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span> {
     // some fields omitted
 }</pre><div class='docblock'><p>A cell holding values protected by an atomic lock.</p>
@@ -114,7 +114,8 @@ being an empty cell. It will, however, remain initialized and
 cannot ever be initialized again.</p>
 
 <h1 id='panics' class='section-header'><a href='#panics'>Panics</a></h1>
-<p>This method panicks if the cell is already initialized.</p>
+<p>This method panicks if the cell is already initialized, or if
+initialization is racing with a call to <code>get</code>.</p>
 </div><h4 id='method.get' class='method'><code>fn <a href='#method.get' class='fnname'>get</a>(&amp;self) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;</code></h4>
 <div class='docblock'><p>Get a clone of the value held by the cell.</p>
 
@@ -135,7 +136,11 @@ perfirmance-critical or high-contention section.</p>
 <h1 id='panics' class='section-header'><a href='#panics'>Panics</a></h1>
 <p>This method panicks if the call to <code>value.clone()</code> causes a
 panic.  However, the cell remains usable.</p>
-</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='trait' href='../atomic_cell/trait.CleanMeUp.html' title='atomic_cell::CleanMeUp'>CleanMeUp</a> for <a class='struct' href='../atomic_cell/struct.StaticCell.html' title='atomic_cell::StaticCell'>StaticCell</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'><h4 id='method.clean' class='method'><code>fn <a href='../atomic_cell/trait.CleanMeUp.html#method.clean' class='fnname'>clean</a>(&amp;self)</code></h4>
+
+<p>This method may panick if it is racing with <code>init()</code>. Just
+make sure that initialization is complete before using this
+cell, right?</p>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html' title='core::marker::Sync'>Sync</a> for <a class='struct' href='../atomic_cell/struct.StaticCell.html' title='atomic_cell::StaticCell'>StaticCell</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'></div><h3 class='impl'><code>impl&lt;T&gt; <a class='trait' href='../atomic_cell/trait.CleanMeUp.html' title='atomic_cell::CleanMeUp'>CleanMeUp</a> for <a class='struct' href='../atomic_cell/struct.StaticCell.html' title='atomic_cell::StaticCell'>StaticCell</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'><h4 id='method.clean' class='method'><code>fn <a href='../atomic_cell/trait.CleanMeUp.html#method.clean' class='fnname'>clean</a>(&amp;self)</code></h4>
 </div></section>
     <section id='search' class="content hidden"></section>
 

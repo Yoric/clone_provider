@@ -45,7 +45,7 @@
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-38' class='srclink' href='../src/atomic_cell/lib.rs.html#200-202' title='goto source code'>[src]</a></span></h1>
+        </span><a id='src-41' class='srclink' href='../src/atomic_cell/lib.rs.html#213-215' title='goto source code'>[src]</a></span></h1>
 <pre class='rust struct'>pub struct AtomicCell&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span> {
     // some fields omitted
 }</pre><div class='docblock'><p>A cell holding values protected by an atomic lock.</p>
@@ -66,7 +66,7 @@ considerably.</p>
 <div class='docblock'><p>Create a new empty cell.</p>
 
 <p>Use <code>set</code> or <code>swap</code> to add contents.</p>
-</div><h4 id='method.set' class='method'><code>fn <a href='#method.set' class='fnname'>set</a>(&amp;self, value: T)</code></h4>
+</div><h4 id='method.set' class='method'><code>fn <a href='#method.set' class='fnname'>set</a>(&amp;mut self, value: T)</code></h4>
 <div class='docblock'><p>Set the contents of the cell.</p>
 
 <p><code>value</code> will be dropped either when the cell is dropped, or
@@ -83,12 +83,12 @@ transferred to the client if <code>swap</code> is called.</p>
 <p>A panic during the call to <code>value.clone()</code> will propagate and
 cause a panic in the cell.  However, the cell will remain
 usable.</p>
-</div><h4 id='method.unset' class='method'><code>fn <a href='#method.unset' class='fnname'>unset</a>(&amp;self)</code></h4>
+</div><h4 id='method.unset' class='method'><code>fn <a href='#method.unset' class='fnname'>unset</a>(&amp;mut self)</code></h4>
 <div class='docblock'><p>Empty the cell manually.</p>
 
 <p>If the cell was empty, this is a noop. Otherwise, the previous
 value held is dropped.</p>
-</div><h4 id='method.swap' class='method'><code>fn <a href='#method.swap' class='fnname'>swap</a>(&amp;self, value: <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;</code></h4>
+</div><h4 id='method.swap' class='method'><code>fn <a href='#method.swap' class='fnname'>swap</a>(&amp;mut self, value: <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;) -&gt; <a class='enum' href='https://doc.rust-lang.org/nightly/core/option/enum.Option.html' title='core::option::Option'>Option</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;T&gt;&gt;</code></h4>
 <div class='docblock'><p>Swap the value held by the cell with a new value.</p>
 </div></div><h2 id='implementations'>Trait Implementations</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='trait' href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html' title='core::ops::Drop'>Drop</a> for <a class='struct' href='../atomic_cell/struct.AtomicCell.html' title='atomic_cell::AtomicCell'>AtomicCell</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'><h4 id='method.drop' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/ops/trait.Drop.html#method.drop' class='fnname'>drop</a>(&amp;mut self)</code></h4>
 </div></section>

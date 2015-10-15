@@ -603,12 +603,48 @@
 <span id="561">561</span>
 <span id="562">562</span>
 <span id="563">563</span>
+<span id="564">564</span>
+<span id="565">565</span>
+<span id="566">566</span>
+<span id="567">567</span>
+<span id="568">568</span>
+<span id="569">569</span>
+<span id="570">570</span>
+<span id="571">571</span>
+<span id="572">572</span>
+<span id="573">573</span>
+<span id="574">574</span>
+<span id="575">575</span>
+<span id="576">576</span>
+<span id="577">577</span>
+<span id="578">578</span>
+<span id="579">579</span>
+<span id="580">580</span>
+<span id="581">581</span>
+<span id="582">582</span>
+<span id="583">583</span>
+<span id="584">584</span>
+<span id="585">585</span>
+<span id="586">586</span>
+<span id="587">587</span>
+<span id="588">588</span>
+<span id="589">589</span>
+<span id="590">590</span>
+<span id="591">591</span>
+<span id="592">592</span>
+<span id="593">593</span>
+<span id="594">594</span>
+<span id="595">595</span>
+<span id="596">596</span>
+<span id="597">597</span>
+<span id="598">598</span>
 </pre><pre class='rust '>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>const_fn</span>)]</span>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>catch_panic</span>)]</span> <span class='comment'>// For testing</span>
 
 
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicBool</span>, <span class='ident'>AtomicPtr</span>, <span class='ident'>Ordering</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='ident'>AtomicBool</span>, <span class='ident'>Ordering</span>};
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cell</span>::<span class='ident'>RefCell</span>;
 
 <span class='doccomment'>/// A cell holding values protected by an atomic lock.</span>
 <span class='doccomment'>///</span>
@@ -675,8 +711,11 @@
 <span class='doccomment'>///</span>
 <span class='doccomment'>///</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
-    <span class='ident'>internal</span>: <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+    <span class='ident'>internal</span>: <span class='ident'>RefCell</span><span class='op'>&lt;</span><span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>,
     <span class='ident'>initialized</span>: <span class='ident'>AtomicBool</span>
+}
+
+<span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
 }
 
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
@@ -688,7 +727,7 @@
     <span class='kw'>pub</span> <span class='kw'>const</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
         <span class='ident'>StaticCell</span> {
             <span class='ident'>initialized</span>: <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='boolval'>false</span>),
-            <span class='ident'>internal</span>: <span class='ident'>InternalAtomicCell</span>::<span class='ident'>const_new</span>()
+            <span class='ident'>internal</span>: <span class='ident'>RefCell</span>::<span class='ident'>new</span>(<span class='ident'>InternalAtomicCell</span>::<span class='ident'>const_new</span>())
         }
     }
 
@@ -701,13 +740,18 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Panics</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This method panicks if the cell is already initialized.</span>
+    <span class='doccomment'>/// This method panicks if the cell is already initialized, or if</span>
+    <span class='doccomment'>/// initialization is racing with a call to `get`.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>init</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>initialized</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>initialized</span>.<span class='ident'>compare_and_swap</span>(<span class='boolval'>false</span>, <span class='boolval'>true</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+        <span class='kw'>let</span> <span class='ident'>initialized</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>initialized</span>.<span class='ident'>compare_and_swap</span>(<span class='comment'>/* must be */</span><span class='boolval'>false</span>,
+                                                            <span class='comment'>/* becomes */</span><span class='boolval'>true</span>,
+                                                            <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
         <span class='kw'>if</span> <span class='ident'>initialized</span> {
             <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;StaticCell is already initialized.&quot;</span>);
         }
-        <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>set</span>(<span class='ident'>value</span>);
+        {
+            <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>set</span>(<span class='ident'>value</span>);
+        }
         <span class='kw'>return</span> <span class='ident'>CleanGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)
     }
 
@@ -734,8 +778,12 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// This method panicks if the call to `value.clone()` causes a</span>
     <span class='doccomment'>/// panic.  However, the cell remains usable.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// This method may panick if it is racing with `init()`. Just</span>
+    <span class='doccomment'>/// make sure that initialization is complete before using this</span>
+    <span class='doccomment'>/// cell, right?</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>get</span>()
+        <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>borrow</span>().<span class='ident'>get</span>()
     }
 }
 
@@ -744,7 +792,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// This method is called when the `CleanGuard` is dropped.</span>
     <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>unset</span>();
+        <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>borrow_mut</span>().<span class='ident'>unset</span>();
     }
 }
 
@@ -828,7 +876,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// If the cell already held some contents, drop these contents.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) {
         <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>set</span>(<span class='ident'>value</span>)
     }
 
@@ -851,14 +899,14 @@
     <span class='doccomment'>/// If the cell was empty, this is a noop. Otherwise, the previous</span>
     <span class='doccomment'>/// value held is dropped.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>unset</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>unset</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
         <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>unset</span>()
     }
 
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Swap the value held by the cell with a new value.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>swap</span>(<span class='ident'>value</span>)
     }
 }
@@ -889,13 +937,13 @@
     <span class='doccomment'>///</span>
     <span class='kw'>pub</span> <span class='kw'>const</span> <span class='kw'>fn</span> <span class='ident'>const_new</span>() <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
         <span class='ident'>InternalAtomicCell</span> {
-            <span class='ident'>ptr</span>: <span class='ident'>AtomicPtr</span>::<span class='ident'>new</span>(<span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>()),
+            <span class='ident'>ptr</span>: <span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
             <span class='ident'>lock</span>: <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='boolval'>true</span>),
         }
     }
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>() <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
         <span class='ident'>InternalAtomicCell</span> {
-            <span class='ident'>ptr</span>: <span class='ident'>AtomicPtr</span>::<span class='ident'>new</span>(<span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>()),
+            <span class='ident'>ptr</span>: <span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
             <span class='ident'>lock</span>: <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='boolval'>true</span>),
         }
     }
@@ -916,7 +964,7 @@
     <span class='doccomment'>/// is low, it should be very fast. However, in case of high</span>
     <span class='doccomment'>/// contention, performance may degrade considerably.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>set</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) {
         <span class='self'>self</span>.<span class='ident'>swap</span>(<span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>value</span>)));
     }
 
@@ -934,7 +982,7 @@
     <span class='doccomment'>/// is low, it should be very fast. However, in case of high</span>
     <span class='doccomment'>/// contention, performance may degrade considerably.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>unset</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>unset</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
         <span class='self'>self</span>.<span class='ident'>swap</span>(<span class='prelude-val'>None</span>);
     }
 
@@ -953,21 +1001,22 @@
     <span class='doccomment'>/// will, however, remain usable.</span>
     <span class='doccomment'>///</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
-
-            <span class='kw'>if</span> <span class='ident'>ptr</span>.<span class='ident'>is_null</span>() {
+        <span class='kw'>let</span> <span class='ident'>maybe_clone</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
+            <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>is_null</span>() {
                 <span class='kw'>return</span> <span class='prelude-val'>None</span>;
             }
 
             <span class='comment'>// Don&#39;t cast back to Box, as this would cause us to</span>
             <span class='comment'>// `drop` the value in case of panic.</span>
-            <span class='kw'>let</span> <span class='ident'>clone</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { (<span class='op'>*</span><span class='ident'>ptr</span>).<span class='ident'>clone</span>() };
+            <span class='prelude-val'>Some</span>(<span class='kw'>unsafe</span> { (<span class='op'>*</span><span class='self'>self</span>.<span class='ident'>ptr</span>).<span class='ident'>clone</span>() })
             <span class='comment'>// If `clone` panics, `with_lock` will ensure that the</span>
             <span class='comment'>// lock is released.</span>
-
-            <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>clone</span>))
-        })
+        });
+        <span class='comment'>// Allocate out of the lock.</span>
+        <span class='kw'>match</span> <span class='ident'>maybe_clone</span> {
+            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='prelude-val'>None</span>,
+            <span class='prelude-val'>Some</span>(<span class='ident'>clone</span>) <span class='op'>=&gt;</span> <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>clone</span>))
+        }
     }
 
     <span class='doccomment'>///</span>
@@ -979,16 +1028,16 @@
     <span class='doccomment'>/// is low, it should be very fast. However, in case of high</span>
     <span class='doccomment'>/// contention, performance may degrade considerably.</span>
     <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
         <span class='kw'>let</span> <span class='ident'>new_ptr</span> <span class='op'>=</span> <span class='ident'>ptr_from_opt</span>(<span class='ident'>value</span>);
         <span class='comment'>// We are now the owner of `value` as a pointer. From this</span>
         <span class='comment'>// point, we are in charge of dropping it manually.</span>
-        <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
-            <span class='comment'>// Since we are protected by the outer lock, a relaxed</span>
-            <span class='comment'>// order is sufficient here.</span>
-            <span class='kw'>let</span> <span class='ident'>old_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>swap</span>(<span class='ident'>new_ptr</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
-            <span class='ident'>opt_from_ptr</span>(<span class='ident'>old_ptr</span>)
-        })
+        <span class='kw'>let</span> <span class='ident'>old_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>with_lock_mut</span>(<span class='op'>|</span><span class='kw-2'>mut</span> <span class='ident'>ptr</span> : <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span><span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span><span class='op'>|</span> {
+            <span class='kw'>let</span> <span class='ident'>old_ptr</span> <span class='op'>=</span> <span class='op'>*</span><span class='ident'>ptr</span>;
+            <span class='op'>*</span><span class='ident'>ptr</span> <span class='op'>=</span> <span class='ident'>new_ptr</span>;
+            <span class='ident'>old_ptr</span>
+        });
+        <span class='ident'>opt_from_ptr</span>(<span class='ident'>old_ptr</span>)
     }
 
     <span class='doccomment'>///</span>
@@ -1020,6 +1069,27 @@
             }
         }
     }
+    <span class='kw'>fn</span> <span class='ident'>with_lock_mut</span><span class='op'>&lt;</span><span class='ident'>F</span>, <span class='ident'>R</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='ident'>R</span> <span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>FnOnce</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span><span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>R</span> {
+        <span class='kw'>loop</span> {
+            <span class='comment'>// Attempt to acquire the lock.</span>
+            <span class='comment'>// This data structure is designed for low contention, so we can use</span>
+            <span class='comment'>// an atomic spinlock.</span>
+            <span class='kw'>let</span> <span class='ident'>owning</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>compare_and_swap</span>(<span class='comment'>/*must be available*/</span><span class='boolval'>true</span>,
+                                                    <span class='comment'>/*mark as unavailable*/</span><span class='boolval'>false</span>,
+                                                    <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
+            <span class='kw'>if</span> <span class='ident'>owning</span> {
+                <span class='comment'>// We are now the owner of the lock.</span>
+
+                <span class='comment'>// Make sure that we eventually release the lock.</span>
+                <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>GuardLock</span>::<span class='ident'>new</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>lock</span>);
+
+                <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>f</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>.<span class='ident'>ptr</span>);
+
+                <span class='kw'>return</span> <span class='ident'>result</span>;
+            }
+        }
+    }
+
 }
 
 <span class='kw'>fn</span> <span class='ident'>ptr_from_opt</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
@@ -1043,7 +1113,7 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// This pointer may be `null`.</span>
     <span class='doccomment'>///</span>
-    <span class='ident'>ptr</span>: <span class='ident'>AtomicPtr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+    <span class='ident'>ptr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span>,
 
     <span class='doccomment'>/// An atomic bool supporting a spinlock.</span>
     <span class='doccomment'>///</span>
