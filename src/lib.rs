@@ -1,4 +1,7 @@
 #![feature(const_fn)]
+#![feature(catch_panic)] // For testing
+
+
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
 /// A cell holding values protected by an atomic lock.
@@ -11,7 +14,6 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 ///
 /// FIXME: Resolve the matter of dropping.
 ///
-/// FIXME: May need to poison the cell in case of panic in `clone`.
 impl<T> AtomicCell<T> where T: Clone {
     ///
     /// Create an empty cell.
@@ -72,11 +74,8 @@ impl<T> AtomicCell<T> where T: Clone {
     ///
     /// # Panics
     ///
-    /// If the `clone` method panics, this will cause a panic.
-    ///
-    /// FIXME: In the current state of things, a panic in the call to
-    /// `clone` will also render the cell unusable forever (the lock
-    /// can never be acquired).
+    /// If the `clone` method panics, this will cause a panic. The cell
+    /// will, however, remain usable.
     ///
     pub fn get(&self) -> Option<Box<T>> {
         self.with_lock(|| {
@@ -131,10 +130,9 @@ impl<T> AtomicCell<T> where T: Clone {
     ///
     /// We use an atomic spinlock.
     ///
-    /// # Safety
+    /// # Panics
     ///
-    /// If `f` panics, the lock becomes impossible to
-    /// acquire. Ever. You have been warned.
+    /// If `f` panics.
     ///
     fn with_lock<F, R>(&self, f: F) -> R where F: FnOnce() -> R {
         loop {
@@ -145,11 +143,11 @@ impl<T> AtomicCell<T> where T: Clone {
                                                     /*mark as unavailable*/false, Ordering::Relaxed); // FIXME: Check ordering.
             if owning {
                 // We are now the owner of the lock.
-                // We must be very careful not to panic becore we have released the lock.
-                let result = f();
 
-                // Release the lock.
-                self.lock.swap(true, Ordering::Relaxed);
+                // Make sure that we eventually release the lock.
+                let _guard = GuardLock::new(&self.lock);
+
+                let result = f();
 
                 return result;
             }
@@ -165,10 +163,26 @@ pub struct AtomicCell<T> where T: Clone {
 unsafe impl<T> Sync for AtomicCell<T> where T: Clone + Send {
 }
 
+struct GuardLock<'a> {
+    lock: &'a AtomicBool
+}
+impl<'a> GuardLock<'a> {
+    fn new(lock: &AtomicBool) -> GuardLock {
+        GuardLock {
+            lock: lock
+        }
+    }
+}
+impl<'a> Drop for GuardLock<'a> {
+    fn drop(&mut self) {
+        self.lock.swap(true, Ordering::Relaxed);
+    }
+}
 
 #[cfg(test)]
 mod test {
     use super::AtomicCell;
+
 
     use std::ops::Add;
     use std::sync::mpsc::{channel, Sender};
@@ -201,4 +215,37 @@ mod test {
         }
         assert_eq!(CELL2.get(), None);
     }
+
+    // Test that a panic does not make the cell unusable.
+    struct Panicky {
+        pub should_panic: bool
+    }
+    impl Clone for Panicky {
+        fn clone(&self) -> Self {
+            if self.should_panic {
+                panic!("I have panicked, as expected");
+            }
+            Panicky {
+                should_panic: self.should_panic
+            }
+        }
+    }
+
+    static CELL_PANIC: AtomicCell<Panicky> = AtomicCell::new();
+    #[test]
+    fn test_panic() {
+        // First, cause a panic.
+        CELL_PANIC.set(Panicky { should_panic: true });
+        let panic = thread::catch_panic(|| {
+            CELL_PANIC.get() // Should panic
+        });
+        assert!(panic.is_err());
+
+        // Now proceed, as if nothing had happened.
+        CELL_PANIC.set(Panicky { should_panic: false });
+
+        // This shouldn't panic.
+        CELL_PANIC.get().unwrap();
+    }
+
 }
