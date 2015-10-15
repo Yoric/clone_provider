@@ -5,3 +5,4 @@ authors = ["David Rajchenbach-Teller <D.O.Teller@gmail.com>"]
 
 [dependencies]
 lazy_static = "0.1.15"
+telemetry = "0.1.1"

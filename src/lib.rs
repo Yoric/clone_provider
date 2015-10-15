@@ -1,100 +1,132 @@
-use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::Arc;
+#![feature(const_fn)]
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
-pub trait SyncClone: Clone {
-}
-
-/// A structure whose sole role is to provide clones of a source object to any thread that
-/// requests it.
+/// A cell holding values protected by an atomic lock.
 ///
-/// Initially, any call to `get` will return `None`. To let the `CloneProvider` provide
-/// something more useful, clients need to call method `attach`.
-impl<T> CloneProvider<T> where T: SyncClone {
-    /// Provide an original for the `CloneProvider`, returns a guard.
-    ///
-    /// Until the guard is dropped, any call to `get` will return a
-    /// clone of `value`. Once the guard is dropped, `value` is
-    /// dropped and further calls to `get` will again return `None`.
-    ///
-    ///
-    /// # Panics
-    ///
-    /// Calling attach again before dropping the guard will panic.
-    pub fn attach(&self, value: Box<T>) -> Guard<T> {
-        let ptr_new = Box::into_raw(value);
-        let guard = Guard::new(self.current.clone(), ptr_new.clone());
-
-        // Get rid of the original, if any.
-        let ptr_old = self.current.swap(ptr_new.clone(), Ordering::Relaxed);
-        if !ptr_old.is_null() {
-            // The old pointer will now be dropped.
-            unsafe {
-                Box::from_raw(ptr_old);
-            }
+/// This cell is designed to hold values that implement `Clone` and to
+/// distribute them to threads as needed. It may be instantiated as
+/// a `static` value.
+///
+/// This cell is optimized for low contention.
+impl<T> AtomicCell<T> where T: Clone {
+    pub const fn new() -> Self {
+        AtomicCell {
+            ptr: AtomicPtr::new(std::ptr::null_mut()),
+            lock: AtomicBool::new(true)
         }
-
-        guard
     }
 
-    /// Return a clone of the attached value.
-    ///
-    /// If there is no currently attached value, return `None`.
-    pub fn get(&self) -> Option<Box<T>> {
-        let ptr = self.current.load(Ordering::Relaxed);
+    pub fn set(&self, value: T) {
+        self.swap(Some(Box::new(value)));
+    }
+
+    pub fn unset(&self) {
+        self.swap(None);
+    }
+
+    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
+        let new_ptr = self.ptr_from_opt(value);
+        // We are now the owner of `value` as a pointer. From this
+        // point, we are in charge of dropping it manually.
+        self.with_lock(|| {
+            let old_ptr = self.ptr.swap(new_ptr, Ordering::Relaxed);
+            self.opt_from_ptr(old_ptr)
+        })
+    }
+
+    fn ptr_from_opt(&self, value: Option<Box<T>>) -> *mut T {
+        match value {
+            None => std::ptr::null_mut(),
+            Some(b) => Box::into_raw(b)
+        }
+    }
+
+    fn opt_from_ptr(&self, ptr: *mut T) -> Option<Box<T>> {
         if ptr.is_null() {
             None
         } else {
-            unsafe {
-                let as_box = Box::from_raw(ptr);
-                // Call clone, as advertised.
-                let clone = as_box.clone();
-                // Make sure that we do not drop the original box.
-                Box::into_raw(as_box);
-                Some(clone)
+            unsafe { Some(Box::from_raw(ptr)) }
+        }
+    }
+
+    fn with_lock<F, R>(&self, f: F) -> R where F: FnOnce(/*&mut AtomicCell<T>*/) -> R {
+        loop {
+            // Attempt to acquire the lock.
+            // This data structure is designed for low contention, so we can use
+            // an atomic spinlock.
+            let owning = self.lock.compare_and_swap(/*must be available*/true,
+                                                    /*mark as unavailable*/false, Ordering::Relaxed); // FIXME: Check ordering.
+            if owning {
+                // We are now the owner of the lock.
+                // We must be very careful not to panic becore we have released the lock.
+                let result = f();
+
+                // Release the lock.
+                self.lock.swap(true, Ordering::Relaxed);
+
+                return result;
             }
         }
     }
-}
 
-impl<T> CloneProvider<T> where T: SyncClone {
-  pub fn new() -> CloneProvider<T> {
-    CloneProvider {
-      current: Arc::new(AtomicPtr::new(std::ptr::null_mut()))
+    pub fn get(&self) -> Option<Box<T>> {
+        self.with_lock(|| {
+            let ptr = self.ptr.load(Ordering::Relaxed).clone();
+            // The original. We must be very careful to not drop it.
+            let original = self.opt_from_ptr(ptr);
+
+            let result = original.clone(); // FIXME: What if this panics? Do we need poisoning?
+
+            // Eat back `original` to ensure that it is not dropped.
+            self.ptr_from_opt(original);
+            result
+        })
     }
-  }
 }
 
-pub struct CloneProvider<T> where T: SyncClone {
-    current: Arc<AtomicPtr<T>>
+pub struct AtomicCell<T> where T: Clone {
+    ptr: AtomicPtr<T>,
+    lock: AtomicBool
 }
 
-impl<T> Guard<T> where T: SyncClone {
-    fn new(store: Arc<AtomicPtr<T>>, ptr: *mut T) -> Guard<T> {
-        Guard {
-            ptr: ptr,
-            store: store
+unsafe impl<T> Sync for AtomicCell<T> where T: Clone + Send {
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::AtomicCell;
+
+    use std::ops::Add;
+    use std::sync::mpsc::{channel, Sender};
+    use std::thread;
+
+    static CELL: AtomicCell<Sender<u32>> = AtomicCell::new();
+
+    #[test]
+    fn test_channels() {
+        let (tx, rx) = channel();
+        CELL.set(tx);
+        for i in 0..10 {
+            thread::spawn(move || {
+                let tx = CELL.get().unwrap();
+                tx.send(i).unwrap();
+            });
         }
+        assert_eq!(rx.iter().take(10).fold(0, Add::add), 45);
     }
-}
 
-pub struct Guard<T> where T: SyncClone {
-    ptr: *mut T,
-    store: Arc<AtomicPtr<T>>
-}
-impl<T> Drop for Guard<T> where T: SyncClone {
-    fn drop(&mut self) {
-        let ptr_in_store =
-            self.store.compare_and_swap(self.ptr,
-                                        std::ptr::null_mut(), Ordering::Relaxed);
-        if ptr_in_store == self.ptr {
-            // We're the owner.
-            unsafe {
-                drop(Box::from_raw(ptr_in_store))
-            }
+    #[test]
+    fn test_empty() {
+        let (tx, rx) = channel();
+        CELL.set(tx);
+        for i in 0..10 {
+            thread::spawn(move || {
+                let tx = CELL.get().unwrap();
+                tx.send(i).unwrap();
+            });
         }
+        assert_eq!(rx.iter().take(10).fold(0, Add::add), 45);
     }
-}
 
-unsafe impl<T> Sync for CloneProvider<T> where T: SyncClone {
 }
-
