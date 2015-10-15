@@ -27,8 +27,6 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 /// // - it does not implement `Sync`;
 /// // - it has a destructor.
 /// // So let's implement it as a `StaticCell`.
-///
-///
 /// static CELL: StaticCell<Sender<u32>> = StaticCell::new();
 ///
 /// fn main() {
@@ -39,7 +37,6 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 ///   for i in 0..10 {
 ///     thread::spawn(move || {
 ///       // Any thread can now access clones of `sender`.
-///       // `sender.clone()` explicitly.
 ///       let sender = CELL.get().unwrap();
 ///       sender.send(i).unwrap();
 ///     });
@@ -47,6 +44,9 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 ///
 ///   // Make sure that all data was received properly.
 ///   assert_eq!(receiver.iter().take(10).fold(0, Add::add), 45);
+///
+///   // When we leave `main()`, `_guard` will go out of scope and
+///   // will be dropped. This will cause `sender` to be dropped.
 /// }
 /// ```
 ///
@@ -105,7 +105,7 @@ impl<T> StaticCell<T> where T: Clone {
         }
     }
 
-    /// Get the value held by the cell.
+    /// Get a clone of the value held by the cell.
     ///
     /// Returns `None` if the cell is empty, either because it is not
     /// initialized or because the guard has been dropped.
@@ -125,13 +125,18 @@ trait CleanMeUp {
 
 /// A guard used to drop the value held by a `StaticCell` at a
 /// deterministic point in code.
+///
+/// Once the CleanGuard returned by `init()` is dropped, the value
+/// held by the cell is also dropped.
 pub struct CleanGuard<'a> {
     item: &'a CleanMeUp
 }
 
 impl<T> CleanMeUp for StaticCell<T> where T: Clone {
+    ///
+    /// Perform any cleanup.
+    ///
     fn clean(&self) {
-        print!( "CleanMeUp.clean");
         self.internal.unset();
     }
 }
@@ -187,14 +192,15 @@ impl<T> AtomicCell<T> where T: Clone {
         self.internal.set(value)
     }
 
-    /// Get the value held by the cell.
+    /// Get a clone of the value held by the cell.
     ///
     /// Returns `None` if the cell is empty.
     ///
     /// # Panics
     ///
-    /// This method panicks if the call to `value.clone()` causes a
-    /// panic.  However, the cell remains usable.
+    /// A panic during the call to `value.clone()` will propagate and
+    /// cause a panic in the cell.  However, the cell will remain
+    /// usable.
     pub fn get(&self) -> Option<Box<T>> {
         self.internal.get()
     }
