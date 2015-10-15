@@ -559,6 +559,50 @@
 <span id="517">517</span>
 <span id="518">518</span>
 <span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
+<span id="529">529</span>
+<span id="530">530</span>
+<span id="531">531</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
+<span id="535">535</span>
+<span id="536">536</span>
+<span id="537">537</span>
+<span id="538">538</span>
+<span id="539">539</span>
+<span id="540">540</span>
+<span id="541">541</span>
+<span id="542">542</span>
+<span id="543">543</span>
+<span id="544">544</span>
+<span id="545">545</span>
+<span id="546">546</span>
+<span id="547">547</span>
+<span id="548">548</span>
+<span id="549">549</span>
+<span id="550">550</span>
+<span id="551">551</span>
+<span id="552">552</span>
+<span id="553">553</span>
+<span id="554">554</span>
+<span id="555">555</span>
+<span id="556">556</span>
+<span id="557">557</span>
+<span id="558">558</span>
+<span id="559">559</span>
+<span id="560">560</span>
+<span id="561">561</span>
+<span id="562">562</span>
+<span id="563">563</span>
 </pre><pre class='rust '>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>const_fn</span>)]</span>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>catch_panic</span>)]</span> <span class='comment'>// For testing</span>
@@ -616,9 +660,10 @@
 <span class='doccomment'>/// # Performance</span>
 <span class='doccomment'>///</span>
 <span class='doccomment'>/// This cell is optimized for low contention. If there is no</span>
-<span class='doccomment'>/// contention, each call to `get` is resolved as a single atomic</span>
-<span class='doccomment'>/// read. In presence of high contention on a single cell, though,</span>
-<span class='doccomment'>/// performance may degrade considerably.</span>
+<span class='doccomment'>/// contention, each call to `get` is resolved as a single</span>
+<span class='doccomment'>/// (sequentially consistant) atomic read. In presence of high</span>
+<span class='doccomment'>/// contention on a single cell, though, performance may degrade</span>
+<span class='doccomment'>/// considerably.</span>
 <span class='doccomment'>///</span>
 <span class='doccomment'>///</span>
 <span class='doccomment'>///</span>
@@ -649,22 +694,21 @@
 
     <span class='doccomment'>/// Initialize the cell.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// This methods returns a guard, which will drop `value` once it is dropped itself.</span>
-    <span class='doccomment'>/// Once this is done, `self` will return to being an empty cell. It will, however,</span>
-    <span class='doccomment'>/// remain initialized and cannot ever be initialized again.</span>
+    <span class='doccomment'>/// This methods returns a guard, which will drop `value` once it</span>
+    <span class='doccomment'>/// is dropped itself.  Once this is done, `self` will return to</span>
+    <span class='doccomment'>/// being an empty cell. It will, however, remain initialized and</span>
+    <span class='doccomment'>/// cannot ever be initialized again.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Panics</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// This method panicks if the cell is already initialized.</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>init</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span>(<span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>initialized</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>initialized</span>.<span class='ident'>compare_and_swap</span>(<span class='boolval'>false</span>, <span class='boolval'>true</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
+        <span class='kw'>let</span> <span class='ident'>initialized</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>initialized</span>.<span class='ident'>compare_and_swap</span>(<span class='boolval'>false</span>, <span class='boolval'>true</span>, <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
         <span class='kw'>if</span> <span class='ident'>initialized</span> {
             <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;StaticCell is already initialized.&quot;</span>);
         }
         <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>set</span>(<span class='ident'>value</span>);
-        <span class='kw'>return</span> <span class='ident'>CleanGuard</span> {
-            <span class='ident'>item</span>: <span class='self'>self</span>
-        }
+        <span class='kw'>return</span> <span class='ident'>CleanGuard</span>::<span class='ident'>new</span>(<span class='self'>self</span>)
     }
 
     <span class='doccomment'>/// Get a clone of the value held by the cell.</span>
@@ -675,6 +719,17 @@
     <span class='doccomment'>/// Receiving `None` is almost always a programming error, so</span>
     <span class='doccomment'>/// client code is encouraged to `unwrap()` immediately.</span>
     <span class='doccomment'>///</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// # Performance</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// This methods uses an atomic spinlock. With low contention, it</span>
+    <span class='doccomment'>/// is generally quite fast (assuming that `clone()` is itself</span>
+    <span class='doccomment'>/// fast). In case of high contention, performance may degrade</span>
+    <span class='doccomment'>/// considerably. In case of doubt, ou may wish to ensure that</span>
+    <span class='doccomment'>/// your code calls `clone()` before entering a</span>
+    <span class='doccomment'>/// perfirmance-critical or high-contention section.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Panics</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// This method panicks if the call to `value.clone()` causes a</span>
@@ -684,29 +739,48 @@
     }
 }
 
-<span class='kw'>trait</span> <span class='ident'>CleanMeUp</span> {
-    <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>);
-}
-
-<span class='doccomment'>/// A guard used to drop the value held by a `StaticCell` at a</span>
-<span class='doccomment'>/// deterministic point in code.</span>
-<span class='doccomment'>///</span>
-<span class='doccomment'>/// Once the CleanGuard returned by `init()` is dropped, the value</span>
-<span class='doccomment'>/// held by the cell is also dropped.</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
-    <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CleanMeUp</span>
-}
-
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>CleanMeUp</span> <span class='kw'>for</span> <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
+    <span class='doccomment'>/// Drop the value currently held by the cell, if any.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Perform any cleanup.</span>
-    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// This method is called when the `CleanGuard` is dropped.</span>
     <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
         <span class='self'>self</span>.<span class='ident'>internal</span>.<span class='ident'>unset</span>();
     }
 }
 
+<span class='doccomment'>/// An object that needs to be cleaned up.</span>
+<span class='kw'>pub</span> <span class='kw'>trait</span> <span class='ident'>CleanMeUp</span> {
+    <span class='doccomment'>/// Perform cleanup.</span>
+    <span class='kw'>fn</span> <span class='ident'>clean</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>);
+}
+
+
+<span class='doccomment'>/// A guard used to drop the value held by a `CleanMeUp` at a</span>
+<span class='doccomment'>/// deterministic point in code. This is designed as an alternative to</span>
+<span class='doccomment'>/// `Drop` for global variables.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// Once the `CleanGuard`, the value held by the cell is also dropped.</span>
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CleanMeUp</span>
+}
+
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='doccomment'>/// Create a new guard in charge of cleaning up an object.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Once the CleanGuard is dropped, the object&#39;s `clean` method is</span>
+    <span class='doccomment'>/// called.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>item</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>CleanMeUp</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
+        <span class='ident'>CleanGuard</span> {
+            <span class='ident'>item</span>: <span class='ident'>item</span>
+        }
+    }
+}
+
+
 <span class='kw'>impl</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> <span class='ident'>Drop</span> <span class='kw'>for</span> <span class='ident'>CleanGuard</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Call the guarded object&#39;s `clean` method.</span>
+    <span class='doccomment'>///</span>
     <span class='kw'>fn</span> <span class='ident'>drop</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>) {
         <span class='self'>self</span>.<span class='ident'>item</span>.<span class='ident'>clean</span>();
     }
@@ -724,9 +798,10 @@
 <span class='doccomment'>/// # Performance</span>
 <span class='doccomment'>///</span>
 <span class='doccomment'>/// This cell is optimized for low contention. If there is no</span>
-<span class='doccomment'>/// contention, each call to `get` is resolved as a single atomic</span>
-<span class='doccomment'>/// read. In presence of high contention on a single cell, though,</span>
-<span class='doccomment'>/// performance may degrade considerably.</span>
+<span class='doccomment'>/// contention, each call to `get` is resolved as a single</span>
+<span class='doccomment'>/// (sequentially consistent) atomic read. In presence of high</span>
+<span class='doccomment'>/// contention on a single cell, though, performance may degrade</span>
+<span class='doccomment'>/// considerably.</span>
 <span class='doccomment'>///</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>AtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
     <span class='ident'>internal</span>: <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
@@ -909,6 +984,8 @@
         <span class='comment'>// We are now the owner of `value` as a pointer. From this</span>
         <span class='comment'>// point, we are in charge of dropping it manually.</span>
         <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
+            <span class='comment'>// Since we are protected by the outer lock, a relaxed</span>
+            <span class='comment'>// order is sufficient here.</span>
             <span class='kw'>let</span> <span class='ident'>old_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>swap</span>(<span class='ident'>new_ptr</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
             <span class='ident'>opt_from_ptr</span>(<span class='ident'>old_ptr</span>)
         })
@@ -929,7 +1006,8 @@
             <span class='comment'>// This data structure is designed for low contention, so we can use</span>
             <span class='comment'>// an atomic spinlock.</span>
             <span class='kw'>let</span> <span class='ident'>owning</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>lock</span>.<span class='ident'>compare_and_swap</span>(<span class='comment'>/*must be available*/</span><span class='boolval'>true</span>,
-                                                    <span class='comment'>/*mark as unavailable*/</span><span class='boolval'>false</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>); <span class='comment'>// FIXME: Check ordering.</span>
+                                                    <span class='comment'>/*mark as unavailable*/</span><span class='boolval'>false</span>,
+                                                    <span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
             <span class='kw'>if</span> <span class='ident'>owning</span> {
                 <span class='comment'>// We are now the owner of the lock.</span>
 
@@ -960,15 +1038,25 @@
 }
 
 <span class='kw'>struct</span> <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Pointer to the value held by the cell.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// This pointer may be `null`.</span>
+    <span class='doccomment'>///</span>
     <span class='ident'>ptr</span>: <span class='ident'>AtomicPtr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
+
+    <span class='doccomment'>/// An atomic bool supporting a spinlock.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// If `true`, the lock can be acquired. If `false`, the lock</span>
+    <span class='doccomment'>/// is not available.</span>
     <span class='ident'>lock</span>: <span class='ident'>AtomicBool</span>,
 }
 
 <span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> <span class='op'>+</span> <span class='ident'>Send</span> {
 }
 
-<span class='comment'>// A guard used to ensure that we release a lock, even in case of</span>
-<span class='comment'>// panic.</span>
+<span class='doccomment'>/// A guard used to ensure that we release a lock, even in case of</span>
+<span class='doccomment'>/// panic.</span>
 <span class='kw'>struct</span> <span class='ident'>GuardLock</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>AtomicBool</span>
 }
