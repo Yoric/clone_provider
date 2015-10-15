@@ -2,7 +2,8 @@
 #![feature(catch_panic)] // For testing
 
 
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
 
 /// A cell holding values protected by an atomic lock.
 ///
@@ -69,8 +70,11 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 ///
 ///
 pub struct StaticCell<T> where T: Clone {
-    internal: InternalAtomicCell<T>,
+    internal: RefCell<InternalAtomicCell<T>>,
     initialized: AtomicBool
+}
+
+unsafe impl<T> Sync for StaticCell<T> where T: Clone {
 }
 
 impl<T> StaticCell<T> where T: Clone {
@@ -82,7 +86,7 @@ impl<T> StaticCell<T> where T: Clone {
     pub const fn new() -> Self {
         StaticCell {
             initialized: AtomicBool::new(false),
-            internal: InternalAtomicCell::const_new()
+            internal: RefCell::new(InternalAtomicCell::const_new())
         }
     }
 
@@ -95,13 +99,18 @@ impl<T> StaticCell<T> where T: Clone {
     ///
     /// # Panics
     ///
-    /// This method panicks if the cell is already initialized.
+    /// This method panicks if the cell is already initialized, or if
+    /// initialization is racing with a call to `get`.
     pub fn init<'a>(&'a self, value: T) -> CleanGuard<'a> {
-        let initialized = self.initialized.compare_and_swap(false, true, Ordering::SeqCst);
+        let initialized = self.initialized.compare_and_swap(/* must be */false,
+                                                            /* becomes */true,
+                                                            Ordering::SeqCst);
         if initialized {
             panic!("StaticCell is already initialized.");
         }
-        self.internal.set(value);
+        {
+            self.internal.borrow_mut().set(value);
+        }
         return CleanGuard::new(self)
     }
 
@@ -128,8 +137,12 @@ impl<T> StaticCell<T> where T: Clone {
     ///
     /// This method panicks if the call to `value.clone()` causes a
     /// panic.  However, the cell remains usable.
+    ///
+    /// This method may panick if it is racing with `init()`. Just
+    /// make sure that initialization is complete before using this
+    /// cell, right?
     pub fn get(&self) -> Option<Box<T>> {
-        self.internal.get()
+        self.internal.borrow().get()
     }
 }
 
@@ -138,7 +151,7 @@ impl<T> CleanMeUp for StaticCell<T> where T: Clone {
     ///
     /// This method is called when the `CleanGuard` is dropped.
     fn clean(&self) {
-        self.internal.unset();
+        self.internal.borrow_mut().unset();
     }
 }
 
@@ -222,7 +235,7 @@ impl<T> AtomicCell<T> where T: Clone {
     ///
     /// If the cell already held some contents, drop these contents.
     ///
-    pub fn set(&self, value: T) {
+    pub fn set(&mut self, value: T) {
         self.internal.set(value)
     }
 
@@ -245,14 +258,14 @@ impl<T> AtomicCell<T> where T: Clone {
     /// If the cell was empty, this is a noop. Otherwise, the previous
     /// value held is dropped.
     ///
-    pub fn unset(&self) {
+    pub fn unset(&mut self) {
         self.internal.unset()
     }
 
     ///
     /// Swap the value held by the cell with a new value.
     ///
-    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
+    pub fn swap(&mut self, value: Option<Box<T>>) -> Option<Box<T>> {
         self.internal.swap(value)
     }
 }
@@ -283,13 +296,13 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     ///
     pub const fn const_new() -> Self {
         InternalAtomicCell {
-            ptr: AtomicPtr::new(std::ptr::null_mut()),
+            ptr: std::ptr::null_mut(),
             lock: AtomicBool::new(true),
         }
     }
     pub fn new() -> Self {
         InternalAtomicCell {
-            ptr: AtomicPtr::new(std::ptr::null_mut()),
+            ptr: std::ptr::null_mut(),
             lock: AtomicBool::new(true),
         }
     }
@@ -310,7 +323,7 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     /// is low, it should be very fast. However, in case of high
     /// contention, performance may degrade considerably.
     ///
-    pub fn set(&self, value: T) {
+    pub fn set(&mut self, value: T) {
         self.swap(Some(Box::new(value)));
     }
 
@@ -328,7 +341,7 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     /// is low, it should be very fast. However, in case of high
     /// contention, performance may degrade considerably.
     ///
-    pub fn unset(&self) {
+    pub fn unset(&mut self) {
         self.swap(None);
     }
 
@@ -348,15 +361,13 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     ///
     pub fn get(&self) -> Option<Box<T>> {
         self.with_lock(|| {
-            let ptr = self.ptr.load(Ordering::Relaxed);
-
-            if ptr.is_null() {
+            if self.ptr.is_null() {
                 return None;
             }
 
             // Don't cast back to Box, as this would cause us to
             // `drop` the value in case of panic.
-            let clone = unsafe { (*ptr).clone() };
+            let clone = unsafe { (*self.ptr).clone() };
             // If `clone` panics, `with_lock` will ensure that the
             // lock is released.
 
@@ -373,16 +384,16 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     /// is low, it should be very fast. However, in case of high
     /// contention, performance may degrade considerably.
     ///
-    pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
+    pub fn swap(&mut self, value: Option<Box<T>>) -> Option<Box<T>> {
         let new_ptr = ptr_from_opt(value);
         // We are now the owner of `value` as a pointer. From this
         // point, we are in charge of dropping it manually.
-        self.with_lock(|| {
-            // Since we are protected by the outer lock, a relaxed
-            // order is sufficient here.
-            let old_ptr = self.ptr.swap(new_ptr, Ordering::Relaxed);
-            opt_from_ptr(old_ptr)
-        })
+        let old_ptr = self.with_lock_mut(|mut ptr : &mut*mut T| {
+            let old_ptr = *ptr;
+            *ptr = new_ptr;
+            old_ptr
+        });
+        opt_from_ptr(old_ptr)
     }
 
     ///
@@ -414,6 +425,27 @@ impl<T> InternalAtomicCell<T> where T: Clone {
             }
         }
     }
+    fn with_lock_mut<F, R>(&mut self, f: F) -> R where F: FnOnce(&mut*mut T) -> R {
+        loop {
+            // Attempt to acquire the lock.
+            // This data structure is designed for low contention, so we can use
+            // an atomic spinlock.
+            let owning = self.lock.compare_and_swap(/*must be available*/true,
+                                                    /*mark as unavailable*/false,
+                                                    Ordering::SeqCst);
+            if owning {
+                // We are now the owner of the lock.
+
+                // Make sure that we eventually release the lock.
+                let _guard = GuardLock::new(&self.lock);
+
+                let result = f(&mut self.ptr);
+
+                return result;
+            }
+        }
+    }
+
 }
 
 fn ptr_from_opt<T>(value: Option<Box<T>>) -> *mut T {
@@ -437,7 +469,7 @@ struct InternalAtomicCell<T> where T: Clone {
     ///
     /// This pointer may be `null`.
     ///
-    ptr: AtomicPtr<T>,
+    ptr: *mut T,
 
     /// An atomic bool supporting a spinlock.
     ///
