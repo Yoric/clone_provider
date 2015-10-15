@@ -10,6 +10,7 @@ extern crate rustc_serialize;
 use std::thread;
 use std::sync::mpsc::channel;
 
+/// Definition of histograms.
 mod hist {
     pub use atomic_cell::*;
     pub use telemetry::plain::*;
