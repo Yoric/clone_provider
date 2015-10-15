@@ -119,6 +119,9 @@ remain initialized and cannot ever be initialized again.</p>
 <p>Returns <code>None</code> if the cell is empty, either because it is not
 initialized or because the guard has been dropped.</p>
 
+<p>Receiving <code>None</code> is almost always a programming error, so
+client code is encouraged to <code>unwrap()</code> immediately.</p>
+
 <h1 id='panics' class='section-header'><a href='#panics'>Panics</a></h1>
 <p>This method panicks if the call to <code>value.clone()</code> causes a
 panic.  However, the cell remains usable.</p>

@@ -540,6 +540,25 @@
 <span id="498">498</span>
 <span id="499">499</span>
 <span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
+<span id="505">505</span>
+<span id="506">506</span>
+<span id="507">507</span>
+<span id="508">508</span>
+<span id="509">509</span>
+<span id="510">510</span>
+<span id="511">511</span>
+<span id="512">512</span>
+<span id="513">513</span>
+<span id="514">514</span>
+<span id="515">515</span>
+<span id="516">516</span>
+<span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
 </pre><pre class='rust '>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>const_fn</span>)]</span>
 <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>catch_panic</span>)]</span> <span class='comment'>// For testing</span>
@@ -652,6 +671,9 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// Returns `None` if the cell is empty, either because it is not</span>
     <span class='doccomment'>/// initialized or because the guard has been dropped.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// Receiving `None` is almost always a programming error, so</span>
+    <span class='doccomment'>/// client code is encouraged to `unwrap()` immediately.</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// # Panics</span>
     <span class='doccomment'>///</span>
@@ -857,15 +879,19 @@
     <span class='doccomment'>///</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>get</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
-            <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>).<span class='ident'>clone</span>();
-            <span class='comment'>// The original. We must be very careful to not drop it.</span>
-            <span class='kw'>let</span> <span class='ident'>original</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>opt_from_ptr</span>(<span class='ident'>ptr</span>);
+            <span class='kw'>let</span> <span class='ident'>ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>load</span>(<span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
 
-            <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>original</span>.<span class='ident'>clone</span>(); <span class='comment'>// FIXME: What if this panics? Do we need poisoning?</span>
+            <span class='kw'>if</span> <span class='ident'>ptr</span>.<span class='ident'>is_null</span>() {
+                <span class='kw'>return</span> <span class='prelude-val'>None</span>;
+            }
 
-            <span class='comment'>// Eat back `original` to ensure that it is not dropped.</span>
-            <span class='self'>self</span>.<span class='ident'>ptr_from_opt</span>(<span class='ident'>original</span>);
-            <span class='ident'>result</span>
+            <span class='comment'>// Don&#39;t cast back to Box, as this would cause us to</span>
+            <span class='comment'>// `drop` the value in case of panic.</span>
+            <span class='kw'>let</span> <span class='ident'>clone</span> <span class='op'>=</span> <span class='kw'>unsafe</span> { (<span class='op'>*</span><span class='ident'>ptr</span>).<span class='ident'>clone</span>() };
+            <span class='comment'>// If `clone` panics, `with_lock` will ensure that the</span>
+            <span class='comment'>// lock is released.</span>
+
+            <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>clone</span>))
         })
     }
 
@@ -879,28 +905,13 @@
     <span class='doccomment'>/// contention, performance may degrade considerably.</span>
     <span class='doccomment'>///</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>swap</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>let</span> <span class='ident'>new_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr_from_opt</span>(<span class='ident'>value</span>);
+        <span class='kw'>let</span> <span class='ident'>new_ptr</span> <span class='op'>=</span> <span class='ident'>ptr_from_opt</span>(<span class='ident'>value</span>);
         <span class='comment'>// We are now the owner of `value` as a pointer. From this</span>
         <span class='comment'>// point, we are in charge of dropping it manually.</span>
         <span class='self'>self</span>.<span class='ident'>with_lock</span>(<span class='op'>||</span> {
             <span class='kw'>let</span> <span class='ident'>old_ptr</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>ptr</span>.<span class='ident'>swap</span>(<span class='ident'>new_ptr</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
-            <span class='self'>self</span>.<span class='ident'>opt_from_ptr</span>(<span class='ident'>old_ptr</span>)
+            <span class='ident'>opt_from_ptr</span>(<span class='ident'>old_ptr</span>)
         })
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>ptr_from_opt</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
-        <span class='kw'>match</span> <span class='ident'>value</span> {
-            <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
-            <span class='prelude-val'>Some</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>into_raw</span>(<span class='ident'>b</span>)
-        }
-    }
-
-    <span class='kw'>fn</span> <span class='ident'>opt_from_ptr</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>ptr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
-        <span class='kw'>if</span> <span class='ident'>ptr</span>.<span class='ident'>is_null</span>() {
-            <span class='prelude-val'>None</span>
-        } <span class='kw'>else</span> {
-            <span class='kw'>unsafe</span> { <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>from_raw</span>(<span class='ident'>ptr</span>)) }
-        }
     }
 
     <span class='doccomment'>///</span>
@@ -933,6 +944,21 @@
     }
 }
 
+<span class='kw'>fn</span> <span class='ident'>ptr_from_opt</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>value</span>: <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span>) <span class='op'>-&gt;</span> <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span> {
+    <span class='kw'>match</span> <span class='ident'>value</span> {
+        <span class='prelude-val'>None</span> <span class='op'>=&gt;</span> <span class='ident'>std</span>::<span class='ident'>ptr</span>::<span class='ident'>null_mut</span>(),
+        <span class='prelude-val'>Some</span>(<span class='ident'>b</span>) <span class='op'>=&gt;</span> <span class='ident'>Box</span>::<span class='ident'>into_raw</span>(<span class='ident'>b</span>)
+    }
+}
+
+<span class='kw'>fn</span> <span class='ident'>opt_from_ptr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>ptr</span>: <span class='op'>*</span><span class='kw-2'>mut</span> <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Box</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;&gt;</span> {
+    <span class='kw'>if</span> <span class='ident'>ptr</span>.<span class='ident'>is_null</span>() {
+        <span class='prelude-val'>None</span>
+    } <span class='kw'>else</span> {
+        <span class='kw'>unsafe</span> { <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>from_raw</span>(<span class='ident'>ptr</span>)) }
+    }
+}
+
 <span class='kw'>struct</span> <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> {
     <span class='ident'>ptr</span>: <span class='ident'>AtomicPtr</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
     <span class='ident'>lock</span>: <span class='ident'>AtomicBool</span>,
@@ -941,6 +967,8 @@
 <span class='kw'>unsafe</span> <span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Sync</span> <span class='kw'>for</span> <span class='ident'>InternalAtomicCell</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Clone</span> <span class='op'>+</span> <span class='ident'>Send</span> {
 }
 
+<span class='comment'>// A guard used to ensure that we release a lock, even in case of</span>
+<span class='comment'>// panic.</span>
 <span class='kw'>struct</span> <span class='ident'>GuardLock</span><span class='op'>&lt;</span><span class='lifetime'>&#39;a</span><span class='op'>&gt;</span> {
     <span class='ident'>lock</span>: <span class='kw-2'>&amp;</span><span class='lifetime'>&#39;a</span> <span class='ident'>AtomicBool</span>
 }
@@ -997,8 +1025,10 @@
     }
 
     <span class='comment'>// Test that a panic does not make the cell unusable.</span>
-    <span class='kw'>static</span> <span class='kw-2'>mut</span> <span class='ident'>should_panic</span>: <span class='ident'>AtomicBool</span> <span class='op'>=</span> <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='boolval'>true</span>);
-    <span class='kw'>struct</span> <span class='ident'>Panicky</span>;
+    <span class='kw'>static</span> <span class='kw-2'>mut</span> <span class='ident'>should_panic</span>: <span class='ident'>AtomicBool</span> <span class='op'>=</span> <span class='ident'>AtomicBool</span>::<span class='ident'>new</span>(<span class='boolval'>false</span>);
+    <span class='kw'>struct</span> <span class='ident'>Panicky</span> {
+        <span class='ident'>foo</span>: <span class='ident'>u32</span>
+    }
     <span class='kw'>impl</span> <span class='ident'>Clone</span> <span class='kw'>for</span> <span class='ident'>Panicky</span> {
         <span class='kw'>fn</span> <span class='ident'>clone</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw'>Self</span> {
             <span class='kw'>unsafe</span> {
@@ -1006,19 +1036,25 @@
                     <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;I have panicked, as expected&quot;</span>);
                 }
             }
-            <span class='ident'>Panicky</span>
+            <span class='ident'>Panicky</span> {
+                <span class='ident'>foo</span>: <span class='self'>self</span>.<span class='ident'>foo</span>
+            }
         }
     }
 
     <span class='kw'>static</span> <span class='ident'>CELL_PANIC</span>: <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>Panicky</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>StaticCell</span>::<span class='ident'>new</span>();
     <span class='attribute'>#[<span class='ident'>test</span>]</span>
     <span class='kw'>fn</span> <span class='ident'>test_panic</span>() {
-        <span class='kw'>let</span> <span class='ident'>original</span> <span class='op'>=</span> <span class='ident'>Panicky</span>;
+        <span class='kw'>let</span> <span class='ident'>original</span> <span class='op'>=</span> <span class='ident'>Panicky</span> { <span class='ident'>foo</span>: <span class='number'>500</span> };
+        <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>CELL_PANIC</span>.<span class='ident'>init</span>(<span class='ident'>original</span>.<span class='ident'>clone</span>());
 
-        <span class='comment'>// First, cause a panic.</span>
-        <span class='kw'>let</span> <span class='ident'>_guard</span> <span class='op'>=</span> <span class='ident'>CELL_PANIC</span>.<span class='ident'>init</span>(<span class='ident'>original</span>);
+        <span class='comment'>// Now, cause a panic.</span>
+        <span class='kw'>unsafe</span> {
+            <span class='ident'>should_panic</span>.<span class='ident'>swap</span>(<span class='boolval'>true</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
+        }
         <span class='kw'>let</span> <span class='ident'>panic</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>catch_panic</span>(<span class='op'>||</span> {
-            <span class='ident'>CELL_PANIC</span>.<span class='ident'>get</span>() <span class='comment'>// Should panic</span>
+            <span class='comment'>// This should panic.</span>
+            <span class='ident'>CELL_PANIC</span>.<span class='ident'>get</span>()
         });
         <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>panic</span>.<span class='ident'>is_err</span>());
 
@@ -1027,8 +1063,10 @@
             <span class='ident'>should_panic</span>.<span class='ident'>swap</span>(<span class='boolval'>false</span>, <span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
         }
 
-        <span class='comment'>// This shouldn&#39;t panic.</span>
-        <span class='ident'>CELL_PANIC</span>.<span class='ident'>get</span>().<span class='ident'>unwrap</span>();
+        <span class='comment'>// This shouldn&#39;t panic. Moreover, we should find</span>
+        <span class='comment'>// our original value.</span>
+        <span class='kw'>let</span> <span class='ident'>result</span> <span class='op'>=</span> <span class='ident'>CELL_PANIC</span>.<span class='ident'>get</span>().<span class='ident'>unwrap</span>();
+        <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>result</span>.<span class='ident'>foo</span>, <span class='ident'>original</span>.<span class='ident'>foo</span>);
     }
 
     <span class='kw'>static</span> <span class='ident'>CELL_INIT</span>: <span class='ident'>StaticCell</span><span class='op'>&lt;</span><span class='ident'>u32</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='ident'>StaticCell</span>::<span class='ident'>new</span>();
