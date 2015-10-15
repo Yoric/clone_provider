@@ -360,19 +360,22 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     /// will, however, remain usable.
     ///
     pub fn get(&self) -> Option<Box<T>> {
-        self.with_lock(|| {
+        let maybe_clone = self.with_lock(|| {
             if self.ptr.is_null() {
                 return None;
             }
 
             // Don't cast back to Box, as this would cause us to
             // `drop` the value in case of panic.
-            let clone = unsafe { (*self.ptr).clone() };
+            Some(unsafe { (*self.ptr).clone() })
             // If `clone` panics, `with_lock` will ensure that the
             // lock is released.
-
-            Some(Box::new(clone))
-        })
+        });
+        // Allocate out of the lock.
+        match maybe_clone {
+            None => None,
+            Some(clone) => Some(Box::new(clone))
+        }
     }
 
     ///
