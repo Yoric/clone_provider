@@ -317,15 +317,19 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     ///
     pub fn get(&self) -> Option<Box<T>> {
         self.with_lock(|| {
-            let ptr = self.ptr.load(Ordering::Relaxed).clone();
-            // The original. We must be very careful to not drop it.
-            let original = self.opt_from_ptr(ptr);
+            let ptr = self.ptr.load(Ordering::Relaxed);
 
-            let result = original.clone(); // FIXME: What if this panics? Do we need poisoning?
+            if ptr.is_null() {
+                return None;
+            }
 
-            // Eat back `original` to ensure that it is not dropped.
-            self.ptr_from_opt(original);
-            result
+            // Don't cast back to Box, as this would cause us to
+            // `drop` the value in case of panic.
+            let clone = unsafe { (*ptr).clone() };
+            // If `clone` panics, `with_lock` will ensure that the
+            // lock is released.
+
+            Some(Box::new(clone))
         })
     }
 
@@ -339,28 +343,13 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     /// contention, performance may degrade considerably.
     ///
     pub fn swap(&self, value: Option<Box<T>>) -> Option<Box<T>> {
-        let new_ptr = self.ptr_from_opt(value);
+        let new_ptr = ptr_from_opt(value);
         // We are now the owner of `value` as a pointer. From this
         // point, we are in charge of dropping it manually.
         self.with_lock(|| {
             let old_ptr = self.ptr.swap(new_ptr, Ordering::Relaxed);
-            self.opt_from_ptr(old_ptr)
+            opt_from_ptr(old_ptr)
         })
-    }
-
-    fn ptr_from_opt(&self, value: Option<Box<T>>) -> *mut T {
-        match value {
-            None => std::ptr::null_mut(),
-            Some(b) => Box::into_raw(b)
-        }
-    }
-
-    fn opt_from_ptr(&self, ptr: *mut T) -> Option<Box<T>> {
-        if ptr.is_null() {
-            None
-        } else {
-            unsafe { Some(Box::from_raw(ptr)) }
-        }
     }
 
     ///
@@ -393,6 +382,21 @@ impl<T> InternalAtomicCell<T> where T: Clone {
     }
 }
 
+fn ptr_from_opt<T>(value: Option<Box<T>>) -> *mut T {
+    match value {
+        None => std::ptr::null_mut(),
+        Some(b) => Box::into_raw(b)
+    }
+}
+
+fn opt_from_ptr<T>(ptr: *mut T) -> Option<Box<T>> {
+    if ptr.is_null() {
+        None
+    } else {
+        unsafe { Some(Box::from_raw(ptr)) }
+    }
+}
+
 struct InternalAtomicCell<T> where T: Clone {
     ptr: AtomicPtr<T>,
     lock: AtomicBool,
@@ -401,6 +405,8 @@ struct InternalAtomicCell<T> where T: Clone {
 unsafe impl<T> Sync for InternalAtomicCell<T> where T: Clone + Send {
 }
 
+// A guard used to ensure that we release a lock, even in case of
+// panic.
 struct GuardLock<'a> {
     lock: &'a AtomicBool
 }
@@ -457,8 +463,10 @@ mod test {
     }
 
     // Test that a panic does not make the cell unusable.
-    static mut should_panic: AtomicBool = AtomicBool::new(true);
-    struct Panicky;
+    static mut should_panic: AtomicBool = AtomicBool::new(false);
+    struct Panicky {
+        foo: u32
+    }
     impl Clone for Panicky {
         fn clone(&self) -> Self {
             unsafe {
@@ -466,19 +474,25 @@ mod test {
                     panic!("I have panicked, as expected");
                 }
             }
-            Panicky
+            Panicky {
+                foo: self.foo
+            }
         }
     }
 
     static CELL_PANIC: StaticCell<Panicky> = StaticCell::new();
     #[test]
     fn test_panic() {
-        let original = Panicky;
+        let original = Panicky { foo: 500 };
+        let _guard = CELL_PANIC.init(original.clone());
 
-        // First, cause a panic.
-        let _guard = CELL_PANIC.init(original);
+        // Now, cause a panic.
+        unsafe {
+            should_panic.swap(true, Ordering::Relaxed);
+        }
         let panic = thread::catch_panic(|| {
-            CELL_PANIC.get() // Should panic
+            // This should panic.
+            CELL_PANIC.get()
         });
         assert!(panic.is_err());
 
@@ -487,8 +501,10 @@ mod test {
             should_panic.swap(false, Ordering::Relaxed);
         }
 
-        // This shouldn't panic.
-        CELL_PANIC.get().unwrap();
+        // This shouldn't panic. Moreover, we should find
+        // our original value.
+        let result = CELL_PANIC.get().unwrap();
+        assert_eq!(result.foo, original.foo);
     }
 
     static CELL_INIT: StaticCell<u32> = StaticCell::new();

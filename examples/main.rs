@@ -3,22 +3,21 @@
 
 #![feature(const_fn)]
 
+extern crate telemetry;
+extern crate atomic_cell;
+extern crate rustc_serialize;
+
 use std::thread;
 use std::sync::mpsc::channel;
-
-extern crate telemetry;
-use telemetry::Flatten;
-
-extern crate atomic_cell;
-
-extern crate rustc_serialize;
-use rustc_serialize::json::Json;
 
 mod hist {
     pub use atomic_cell::*;
     pub use telemetry::plain::*;
 
+    /// Measure if we have shutdown correctly or as a consequence of a panic.
     pub static HAS_SHUTDOWN_CORRECTLY : StaticCell<Flag> = StaticCell::new();
+
+    /// Measure the number of uses of each feature.
     pub static FOO_USAGE : StaticCell<Count> = StaticCell::new();
     pub static BAR_USAGE : StaticCell<Count> = StaticCell::new();
     pub static SNA_USAGE : StaticCell<Count> = StaticCell::new();
@@ -56,10 +55,10 @@ fn main() {
 
     /* Prints:
     {
-        "BAR_USAGE": 43444,
-        "FOO_USAGE": 62814,
+        "BAR_USAGE": ...,
+        "FOO_USAGE": ...,
         "HAS_SHUTDOWN_CORRECTLY": 1,
-        "SNA_USAGE": 51268
+        "SNA_USAGE": ...
     }
     */
 }
@@ -73,7 +72,10 @@ fn go(index: u32) {
             feature_foo(total);
         }
         if j % 3 == 0 {
-            feature_sna(total);
+            let total = total;
+            thread::spawn(move || {
+                feature_sna(total);
+            });
         }
         if j % 4 == 0 {
             feature_bar(total);
