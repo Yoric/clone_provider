@@ -2,6 +2,10 @@
 name = "atomic_cell"
 version = "0.1.0"
 authors = ["David Rajchenbach-Teller <D.O.Teller@gmail.com>", "Simon Sapin <simon.sapin@exyr.org>"]
+description = "Cells protected by atomic locks. These data structures were originally designed for an experimental branch of Servo, to let us regroup values that were used throughout the code in modules, rather than having to lug them around as arguments everywhere."
+license = "MIT"
+documentation = "http://yoric.github.io/clone_provider/doc/0.1.0/atomic_cell/index.html"
+repository = "https://github.com/Yoric/clone_provider/"
 
 [dev-dependencies]
 telemetry = "0.1.1"
