@@ -1,7 +1,7 @@
 # Atomic Cells
 Cells protected by atomic locks.
 
-[![Build Status](https://api.travis-ci.org/Yoric/atomic_cell.svg?branch=master)](https://api.travis-ci.org/Yoric/atomic_cell)
+[![Build Status](https://travis-ci.org/Yoric/clone_provider.svg?branch=master)](https://api.travis-ci.org/Yoric/clone_provider)
 
 These data structures were originally designed for an experimental branch of Servo, to let us regroup values that were used throughout the code in modules, rather than having to lug them around as arguments everywhere.
 
